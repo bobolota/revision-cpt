@@ -39,7 +39,6 @@ function App() {
   const [isMobileOpen, setIsMobileOpen] = useState(false)
 
   const [isStructureModalOpen, setIsStructureModalOpen] = useState(false)
-  // AJOUT DE THEME DANS L'ACTION
   const [structureAction, setStructureAction] = useState<'addMatiere'|'editMatiere'|'addTheme'|'editTheme'|'addChapitre'|'editChapitre'|null>(null)
   const [structureTargetId, setStructureTargetId] = useState<number | null>(null)
   const [structureInputValue, setStructureInputValue] = useState('')
@@ -97,13 +96,19 @@ function App() {
   }
   const handleLogout = async () => { await supabase.auth.signOut() }
 
-  // REQUÊTE COMPLÈTE : Matières -> Thèmes -> Chapitres
   const loadMatieres = async () => {
     const { data, error } = await supabase.from('matieres').select('*, themes(*, chapitres(*))').order('nom');
     if (data && !error) {
+      // Tri par ordre pour respecter le glisser-déposer
+      data.forEach(m => {
+        m.themes.sort((a: any, b: any) => (a.ordre || 0) - (b.ordre || 0));
+        m.themes.forEach((t: any) => {
+          t.chapitres.sort((a: any, b: any) => (a.ordre || 0) - (b.ordre || 0));
+        });
+      });
+
       setMatieres(data)
       if (appMode === 'chapitre' && data.length > 0 && !selectedChapitreId) {
-        // Trouve le premier chapitre disponible
         for (const m of data) {
           for (const t of m.themes) {
             if (t.chapitres.length > 0) { setSelectedChapitreId(t.chapitres[0].id); return setLoading(false); }
@@ -119,7 +124,7 @@ function App() {
   useEffect(() => {
     if (selectedChapitreId === null || !session || appMode !== 'chapitre') return;
     const fetchCards = async () => {
-      const { data, error } = await supabase.from('flashcards').select('*').eq('chapitre_id', selectedChapitreId).order('id');
+      const { data, error } = await supabase.from('flashcards').select('*').eq('chapitre_id', selectedChapitreId).order('ordre', { ascending: true }).order('id', { ascending: true });
       if (data && !error) {
         setFlashcards(data);
         if (currentIndex >= data.length && data.length > 0) setCurrentIndex(data.length - 1);
@@ -129,7 +134,6 @@ function App() {
     fetchCards();
   }, [selectedChapitreId, session, appMode])
 
-  // FONCTION UTILITAIRE POUR TROUVER L'ARBORESCENCE D'UNE CARTE
   const getHierarchy = (chapId: number) => {
     for (const m of matieres) {
       for (const t of m.themes) {
@@ -223,14 +227,13 @@ function App() {
     setStructureAction(action); setStructureTargetId(targetId); setStructureInputValue(initialValue); setStructureNiveauValue(initialNiveau); setIsStructureModalOpen(true)
   }
 
-  // INSERTIONS ET MODIFICATIONS ADAPTÉES À LA NOUVELLE STRUCTURE
   const handleStructureSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setIsSubmitting(true); let error = null
     if (structureAction === 'addMatiere') error = (await supabase.from('matieres').insert([{ nom: structureInputValue }])).error
     else if (structureAction === 'editMatiere') error = (await supabase.from('matieres').update({ nom: structureInputValue }).eq('id', structureTargetId)).error
-    else if (structureAction === 'addTheme') error = (await supabase.from('themes').insert([{ matiere_id: structureTargetId, nom: structureInputValue, niveau: structureNiveauValue }])).error
+    else if (structureAction === 'addTheme') error = (await supabase.from('themes').insert([{ matiere_id: structureTargetId, nom: structureInputValue, niveau: structureNiveauValue, ordre: 999 }])).error
     else if (structureAction === 'editTheme') error = (await supabase.from('themes').update({ nom: structureInputValue, niveau: structureNiveauValue }).eq('id', structureTargetId)).error
-    else if (structureAction === 'addChapitre') error = (await supabase.from('chapitres').insert([{ theme_id: structureTargetId, nom: structureInputValue }])).error
+    else if (structureAction === 'addChapitre') error = (await supabase.from('chapitres').insert([{ theme_id: structureTargetId, nom: structureInputValue, ordre: 999 }])).error
     else if (structureAction === 'editChapitre') error = (await supabase.from('chapitres').update({ nom: structureInputValue }).eq('id', structureTargetId)).error
     
     if (!error) { setIsStructureModalOpen(false); loadMatieres() }
@@ -331,6 +334,79 @@ function App() {
     setCurrentIndex(currentIndex + 1); setShowAnswer(false);
   }
 
+  const handleReorderFlashcards = async (reorderedCards: Flashcard[]) => {
+  setFlashcards(reorderedCards); // Mise à jour visuelle instantanée
+  
+  const updates = reorderedCards.map((c, index) => ({
+    id: c.id,
+    ordre: index,
+    chapitre_id: c.chapitre_id,
+    question: c.question,
+    reponse: c.reponse
+  }));
+  
+  await supabase.from('flashcards').upsert(updates);
+};
+
+  const handleDragEnd = async (result: any) => {
+    const { source, destination, type } = result;
+
+    if (!destination) return;
+    if (source.droppableId === destination.droppableId && source.index === destination.index) return;
+
+    const newMatieres = [...matieres];
+
+    if (type === 'THEME') {
+      const [, matiereId, , niveau] = source.droppableId.split('-');
+      const matiereIndex = newMatieres.findIndex(m => m.id === parseInt(matiereId));
+      if (matiereIndex === -1) return;
+      
+      const themesDuNiveau = newMatieres[matiereIndex].themes.filter(t => (t.niveau || 'Autre') === niveau);
+      const autresThemes = newMatieres[matiereIndex].themes.filter(t => (t.niveau || 'Autre') !== niveau);
+      
+      const [movedTheme] = themesDuNiveau.splice(source.index, 1);
+      themesDuNiveau.splice(destination.index, 0, movedTheme);
+      
+      themesDuNiveau.forEach((t, index) => { t.ordre = index; });
+      newMatieres[matiereIndex].themes = [...autresThemes, ...themesDuNiveau];
+      
+      setMatieres(newMatieres); 
+      
+      // NOUVELLE SAUVEGARDE ROBUSTE (THEMES)
+      const updatePromises = themesDuNiveau.map(t => 
+        supabase.from('themes').update({ ordre: t.ordre }).eq('id', t.id)
+      );
+      const results = await Promise.all(updatePromises);
+      const errors = results.filter(r => r.error);
+      if (errors.length > 0) console.error("Erreurs lors de la sauvegarde des thèmes :", errors);
+    } 
+    else if (type === 'CHAPITRE') {
+      const themeId = parseInt(source.droppableId.split('-')[1]);
+      
+      const matiere = newMatieres.find(m => m.themes.some(t => t.id === themeId));
+      if (!matiere) return;
+      const theme = matiere.themes.find(t => t.id === themeId);
+      if (!theme) return;
+
+      const newChapitres = Array.from(theme.chapitres);
+      const [movedChapitre] = newChapitres.splice(source.index, 1);
+      newChapitres.splice(destination.index, 0, movedChapitre);
+      
+      newChapitres.forEach((c, index) => { c.ordre = index; });
+      theme.chapitres = newChapitres;
+      
+      setMatieres(newMatieres); 
+      
+      // NOUVELLE SAUVEGARDE ROBUSTE (CHAPITRES)
+      const updatePromises = newChapitres.map(c => 
+        supabase.from('chapitres').update({ ordre: c.ordre }).eq('id', c.id)
+      );
+      const results = await Promise.all(updatePromises);
+      const errors = results.filter(r => r.error);
+      if (errors.length > 0) console.error("Erreurs lors de la sauvegarde des chapitres :", errors);
+    }
+  };
+
   if (!session) return <LoginScreen email={email} setEmail={setEmail} password={password} setPassword={setPassword} authLoading={authLoading} authError={authError} handleLogin={handleLogin} />
   if (loading) return <div className="flex h-screen items-center justify-center">Chargement...</div>
 
@@ -349,6 +425,7 @@ function App() {
           setIsMobileOpen={setIsMobileOpen} appMode={appMode} 
           startReviewMode={startReviewMode} startQuizMode={startQuizMode}
           searchQuery={searchQuery} setSearchQuery={handleSearchInput} executeSearch={executeSearch} searchSuggestions={searchSuggestions}
+          onReorder={handleDragEnd} // AJOUTÉ ICI
         />
       </div>
       <main className="flex-1 flex flex-col overflow-hidden relative">
@@ -378,10 +455,11 @@ function App() {
             flashcards={flashcards} currentIndex={currentIndex} setCurrentIndex={setCurrentIndex} 
             showAnswer={showAnswer} setShowAnswer={setShowAnswer} 
             currentMatiereName={activeHierarchy?.matiere}
-            currentThemeName={activeHierarchy?.theme} // NOUVEAU
+            currentThemeName={activeHierarchy?.theme}
             currentChapitreName={activeHierarchy?.chapitre}
             userRole={userRole} openEditModal={openEditModal} handleDelete={handleDeleteFlashcard}
             handleEvaluation={handleEvaluation} appMode={appMode} startQuizMode={startQuizMode} searchQuery={searchQuery}
+            onReorderCards={handleReorderFlashcards}
           />
         </div>
       </main>

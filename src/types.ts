@@ -14,6 +14,7 @@ export interface Chapitre {
   theme_id: number;
   nom: string;
   flashcards?: Flashcard[];
+  ordre: number;
 }
 
 export interface Theme {
@@ -22,6 +23,7 @@ export interface Theme {
   nom: string;
   niveau: string;
   chapitres: Chapitre[];
+  ordre: number;
 }
 
 export interface Matiere {

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Button } from "@/components/ui/button"
-import { Plus, Pencil, Trash2, LogOut, PanelLeftClose, PanelLeftOpen, ChevronRight, X, Brain, Flame, Search } from 'lucide-react'
+import { Plus, Pencil, Trash2, LogOut, PanelLeftClose, PanelLeftOpen, ChevronRight, X, Brain, Flame, Search, GripVertical } from 'lucide-react'
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import type { Matiere } from "../types"
 
 interface SidebarProps {
@@ -17,12 +18,14 @@ interface SidebarProps {
   setSearchQuery?: (val: string) => void; 
   executeSearch?: (query: string) => void; 
   searchSuggestions?: string[]; 
+  onReorder: (result: any) => void; // NOUVEAU
 }
 
 export function Sidebar({
   userRole, email, matieres, selectedChapitreId, setSelectedChapitreId,
   handleLogout, openStructureModal, handleDeleteStructure, setIsMobileOpen,
-  appMode, startReviewMode, startQuizMode, searchQuery, setSearchQuery, executeSearch, searchSuggestions
+  appMode, startReviewMode, startQuizMode, searchQuery, setSearchQuery, executeSearch, searchSuggestions,
+  onReorder // NOUVEAU
 }: SidebarProps) {
   
   const [expandedMatieres, setExpandedMatieres] = useState<number[]>([])
@@ -96,84 +99,131 @@ export function Sidebar({
 
         <div className={`flex-1 p-3 md:p-4 pt-0 md:pt-0 ${isCollapsed ? 'px-2 overflow-visible' : 'pr-1 md:pr-2 overflow-y-auto overflow-x-hidden'}`}>
           
-          {/* AFFICHAGE COMPLET (NON REPLIÉ) */}
-          {!isCollapsed && matieres.map((matiere) => {
-            const isExpanded = expandedMatieres.includes(matiere.id)
-            const isMatiereActive = appMode === 'chapitre' && selectedChapitreId && matiere.themes.some(t => t.chapitres.some(c => c.id === selectedChapitreId))
-            
-            const groupedThemes = matiere.themes.reduce((acc, theme) => {
-              const niv = theme.niveau || 'Autre';
-              if (!acc[niv]) acc[niv] = [];
-              acc[niv].push(theme);
-              return acc;
-            }, {} as Record<string, typeof matiere.themes>);
-
-            const sortedNiveaux = Object.keys(groupedThemes).sort((a, b) => {
-              const indexA = niveauxOrder.indexOf(a); const indexB = niveauxOrder.indexOf(b);
-              return (indexA === -1 ? 99 : indexA) - (indexB === -1 ? 99 : indexB);
-            });
-
-            return (
-              <div key={matiere.id} className="mb-2 whitespace-nowrap">
-                <div className="flex justify-between items-center mb-1 ml-1 group">
-                  <button onClick={() => toggleMatiere(matiere.id)} className={`flex items-center gap-2 text-xs md:text-sm font-bold uppercase tracking-wider p-2 rounded-xl transition-colors flex-1 text-left truncate ${isMatiereActive ? 'text-blue-700 bg-blue-50' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'}`}>
-                    <ChevronRight className="w-4 h-4 text-gray-400 shrink-0 transition-transform duration-300" style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }} />
-                    <span className="truncate">{matiere.nom}</span>
-                  </button>
-                  {userRole === 'prof' && (
-                    <div className="hidden group-hover:flex gap-1 shrink-0 bg-white pl-2">
-                      <Button variant="ghost" size="icon" className="h-7 w-7 rounded-xl hover:bg-gray-100" onClick={() => openStructureModal('addTheme', matiere.id)} title="Ajouter un thème"><Plus className="w-4 h-4 text-indigo-600" /></Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 rounded-xl hover:bg-gray-100" onClick={() => openStructureModal('editMatiere', matiere.id, matiere.nom)}><Pencil className="w-4 h-4 text-blue-600" /></Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 rounded-xl hover:bg-red-100" onClick={() => handleDeleteStructure('matiere', matiere.id)}><Trash2 className="w-4 h-4 text-red-500" /></Button>
-                    </div>
-                  )}
-                </div>
+          {/* AFFICHAGE COMPLET (NON REPLIÉ) AVEC DRAG & DROP */}
+          {!isCollapsed && (
+            <DragDropContext onDragEnd={onReorder}>
+              {matieres.map((matiere) => {
+                const isExpanded = expandedMatieres.includes(matiere.id)
+                const isMatiereActive = appMode === 'chapitre' && selectedChapitreId && matiere.themes.some(t => t.chapitres.some(c => c.id === selectedChapitreId))
                 
-                <div className={`grid transition-all duration-300 ease-in-out ${isExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
-                  <div className="overflow-hidden">
-                    <div className="flex flex-col gap-1 ml-4 mt-1 mb-3">
-                      {sortedNiveaux.map(niveau => (
-                        <div key={niveau} className="mb-3">
-                          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-3 mb-1">{niveau}</div>
-                          <div className="flex flex-col gap-1 border-l border-gray-200 ml-3 pl-1">
-                            {groupedThemes[niveau].map(theme => (
-                              <div key={theme.id} className="flex flex-col gap-0.5 mt-1">
-                                <div className="group/theme flex justify-between items-center px-3 py-1">
-                                  <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider truncate" title={theme.nom}>{theme.nom}</span>
-                                  {userRole === 'prof' && (
-                                    <div className="hidden group-hover/theme:flex gap-1 shrink-0 bg-white/90 rounded shadow-sm p-0.5">
-                                      <Button variant="ghost" size="icon" className="h-5 w-5 rounded hover:bg-gray-200" onClick={() => openStructureModal('addChapitre', theme.id)} title="Ajouter un chapitre"><Plus className="w-3 h-3 text-gray-600" /></Button>
-                                      <Button variant="ghost" size="icon" className="h-5 w-5 rounded hover:bg-gray-200" onClick={() => openStructureModal('editTheme', theme.id, theme.nom, theme.niveau)} title="Modifier le thème"><Pencil className="w-3 h-3 text-blue-600" /></Button>
-                                      <Button variant="ghost" size="icon" className="h-5 w-5 rounded hover:bg-red-200" onClick={() => handleDeleteStructure('theme', theme.id)} title="Supprimer le thème"><Trash2 className="w-3 h-3 text-red-600" /></Button>
-                                    </div>
-                                  )}
-                                </div>
-                                {theme.chapitres.map((chap) => (
-                                  <div key={chap.id} className="flex group relative">
-                                    <Button variant={selectedChapitreId === chap.id && appMode === 'chapitre' ? "default" : "ghost"} className="justify-start text-left h-auto py-2 px-3 md:px-4 flex-1 pr-16 text-xs md:text-sm truncate rounded-xl font-medium" onClick={() => setSelectedChapitreId(chap.id)}>
-                                      <span className="truncate w-full">{chap.nom}</span>
-                                    </Button>
-                                    {userRole === 'prof' && (
-                                      <div className="absolute right-1 md:right-2 top-1/2 -translate-y-1/2 hidden group-hover:flex gap-1 bg-white/90 p-1 rounded-xl shadow-sm shrink-0 backdrop-blur-sm">
-                                        <Button variant="ghost" size="icon" className="h-6 w-6 rounded-lg hover:bg-gray-200" onClick={() => openStructureModal('editChapitre', chap.id, chap.nom)}><Pencil className="w-3.5 h-3.5 text-blue-600" /></Button>
-                                        <Button variant="ghost" size="icon" className="h-6 w-6 rounded-lg hover:bg-red-200" onClick={() => handleDeleteStructure('chapitre', chap.id)}><Trash2 className="w-3.5 h-3.5 text-red-600" /></Button>
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            ))}
-                          </div>
+                const groupedThemes = matiere.themes.reduce((acc, theme) => {
+                  const niv = theme.niveau || 'Autre';
+                  if (!acc[niv]) acc[niv] = [];
+                  acc[niv].push(theme);
+                  return acc;
+                }, {} as Record<string, typeof matiere.themes>);
+
+                const sortedNiveaux = Object.keys(groupedThemes).sort((a, b) => {
+                  const indexA = niveauxOrder.indexOf(a); const indexB = niveauxOrder.indexOf(b);
+                  return (indexA === -1 ? 99 : indexA) - (indexB === -1 ? 99 : indexB);
+                });
+
+                return (
+                  <div key={matiere.id} className="mb-2 whitespace-nowrap">
+                    <div className="flex justify-between items-center mb-1 ml-1 group">
+                      <button onClick={() => toggleMatiere(matiere.id)} className={`flex items-center gap-2 text-xs md:text-sm font-bold uppercase tracking-wider p-2 rounded-xl transition-colors flex-1 text-left truncate ${isMatiereActive ? 'text-blue-700 bg-blue-50' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'}`}>
+                        <ChevronRight className="w-4 h-4 text-gray-400 shrink-0 transition-transform duration-300" style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }} />
+                        <span className="truncate">{matiere.nom}</span>
+                      </button>
+                      {userRole === 'prof' && (
+                        <div className="hidden group-hover:flex gap-1 shrink-0 bg-white pl-2">
+                          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-xl hover:bg-gray-100" onClick={() => openStructureModal('addTheme', matiere.id)} title="Ajouter un thème"><Plus className="w-4 h-4 text-indigo-600" /></Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-xl hover:bg-gray-100" onClick={() => openStructureModal('editMatiere', matiere.id, matiere.nom)}><Pencil className="w-4 h-4 text-blue-600" /></Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-xl hover:bg-red-100" onClick={() => handleDeleteStructure('matiere', matiere.id)}><Trash2 className="w-4 h-4 text-red-500" /></Button>
                         </div>
-                      ))}
+                      )}
+                    </div>
+                    
+                    <div className={`grid transition-all duration-300 ease-in-out ${isExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
+                      <div className="overflow-hidden">
+                        <div className="flex flex-col gap-1 ml-4 mt-1 mb-3">
+                          {sortedNiveaux.map(niveau => (
+                            <div key={niveau} className="mb-3">
+                              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-3 mb-1">{niveau}</div>
+                              
+                              <Droppable droppableId={`matiere-${matiere.id}-niveau-${niveau}`} type="THEME">
+                                {(provided) => (
+                                  <div ref={provided.innerRef} {...provided.droppableProps} className="flex flex-col gap-1 border-l border-gray-200 ml-3 pl-1 min-h-[20px]">
+                                    {groupedThemes[niveau].map((theme, themeIndex) => (
+                                      <Draggable key={`theme-${theme.id}`} draggableId={`theme-${theme.id}`} index={themeIndex} isDragDisabled={userRole !== 'prof'}>
+                                        {(provided) => (
+                                          <div ref={provided.innerRef} {...provided.draggableProps} className="flex flex-col gap-0.5 mt-1 bg-white rounded-lg">
+                                            <div className="group/theme flex justify-between items-center px-2 py-1">
+                                              <div className="flex items-center gap-1 overflow-hidden" {...provided.dragHandleProps}>
+                                                {userRole === 'prof' && <GripVertical className="w-3 h-3 text-gray-300 shrink-0 cursor-grab active:cursor-grabbing" />}
+                                                <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider truncate" title={theme.nom}>{theme.nom}</span>
+                                              </div>
+                                              {userRole === 'prof' && (
+                                                <div className="hidden group-hover/theme:flex gap-1 shrink-0 bg-white/90 rounded shadow-sm p-0.5 ml-2">
+                                                  <Button variant="ghost" size="icon" className="h-5 w-5 rounded hover:bg-gray-200" onClick={() => openStructureModal('addChapitre', theme.id)} title="Ajouter un chapitre"><Plus className="w-3 h-3 text-gray-600" /></Button>
+                                                  <Button variant="ghost" size="icon" className="h-5 w-5 rounded hover:bg-gray-200" onClick={() => openStructureModal('editTheme', theme.id, theme.nom, theme.niveau)} title="Modifier le thème"><Pencil className="w-3 h-3 text-blue-600" /></Button>
+                                                  <Button variant="ghost" size="icon" className="h-5 w-5 rounded hover:bg-red-200" onClick={() => handleDeleteStructure('theme', theme.id)} title="Supprimer le thème"><Trash2 className="w-3 h-3 text-red-600" /></Button>
+                                                </div>
+                                              )}
+                                            </div>
+
+                                            <Droppable droppableId={`theme-${theme.id}`} type="CHAPITRE">
+  {(provided) => (
+    <div ref={provided.innerRef} {...provided.droppableProps} className="min-h-[20px] pb-1 flex flex-col gap-0.5">
+      {theme.chapitres.map((chap, chapIndex) => (
+        <Draggable key={`chap-${chap.id}`} draggableId={`chap-${chap.id}`} index={chapIndex} isDragDisabled={userRole !== 'prof'}>
+          {(provided) => (
+            <div ref={provided.innerRef} {...provided.draggableProps} className="flex items-center group relative bg-white rounded-lg">
+              
+              {/* LA POIGNÉE EST MAINTENANT SÉPARÉE DU BOUTON */}
+              {userRole === 'prof' && (
+                <div {...provided.dragHandleProps} className="pl-2 pr-1 py-2 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing">
+                  <GripVertical className="w-3.5 h-3.5 shrink-0" />
+                </div>
+              )}
+
+              <Button 
+                variant={selectedChapitreId === chap.id && appMode === 'chapitre' ? "default" : "ghost"} 
+                className={`justify-start text-left h-auto py-2 flex-1 text-xs md:text-sm truncate rounded-xl font-medium ${userRole === 'prof' ? 'px-1' : 'px-3'}`} 
+                onClick={() => setSelectedChapitreId(chap.id)}
+              >
+                <span className="truncate pr-14">{chap.nom}</span>
+              </Button>
+
+              {userRole === 'prof' && (
+                <div className="absolute right-1 md:right-2 top-1/2 -translate-y-1/2 hidden group-hover:flex gap-1 bg-white/90 p-1 rounded-xl shadow-sm shrink-0 backdrop-blur-sm">
+                  <Button variant="ghost" size="icon" className="h-6 w-6 rounded-lg hover:bg-gray-200" onClick={() => openStructureModal('editChapitre', chap.id, chap.nom)}>
+                    <Pencil className="w-3.5 h-3.5 text-blue-600" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-6 w-6 rounded-lg hover:bg-red-200" onClick={() => handleDeleteStructure('chapitre', chap.id)}>
+                    <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </Draggable>
+      ))}
+      {provided.placeholder}
+    </div>
+  )}
+</Droppable>
+                                          </div>
+                                        )}
+                                      </Draggable>
+                                    ))}
+                                    {provided.placeholder}
+                                  </div>
+                                )}
+                              </Droppable>
+
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            )
-          })}
+                )
+              })}
+            </DragDropContext>
+          )}
 
-          {/* AFFICHAGE REPLIÉ (LE BLOC QUE J'AVAIS OUBLIÉ) */}
+          {/* AFFICHAGE REPLIÉ (INCHANGÉ) */}
           {isCollapsed && (
             <div className="flex flex-col items-center gap-3 mt-2 border-t border-gray-100 pt-4">
               {matieres.map((matiere) => {

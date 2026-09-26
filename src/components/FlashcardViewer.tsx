@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Latex from 'react-latex-next'
-import { Pencil, Trash2, ChevronRight, ChevronDown, ArrowRight, Trophy, Calculator, BookOpen, Lightbulb, Calendar, User, HelpCircle, FileText, RotateCcw, Brain, CheckCircle2, Flame, Sparkles, Search } from 'lucide-react'
+import { Pencil, Trash2, ChevronRight, ChevronDown, ArrowRight, Trophy, Calculator, BookOpen, Lightbulb, Calendar, User, HelpCircle, FileText, RotateCcw, Brain, CheckCircle2, Flame, Sparkles, Search, GripVertical, ListOrdered } from 'lucide-react'
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd'
 import type { Flashcard } from "../types"
 
 interface FlashcardViewerProps {
@@ -14,6 +15,7 @@ interface FlashcardViewerProps {
   appMode?: 'chapitre' | 'revisions' | 'quiz' | 'search';
   startQuizMode?: () => void;
   searchQuery?: string; 
+  onReorderCards?: (cards: Flashcard[]) => void; // NOUVEAU
 }
 
 const getCategoryConfig = (cat?: string | null) => {
@@ -28,11 +30,26 @@ const getCategoryConfig = (cat?: string | null) => {
 }
 
 export function FlashcardViewer({
-  flashcards, currentIndex, setCurrentIndex, showAnswer, setShowAnswer, currentMatiereName, currentThemeName, currentChapitreName, userRole, openEditModal, handleDelete, handleEvaluation, appMode, startQuizMode, searchQuery
+  flashcards, currentIndex, setCurrentIndex, showAnswer, setShowAnswer, currentMatiereName, currentThemeName, currentChapitreName, userRole, openEditModal, handleDelete, handleEvaluation, appMode, startQuizMode, searchQuery, onReorderCards
 }: FlashcardViewerProps) {
   
   const [showFiches, setShowFiches] = useState(true)
   const [showQuestions, setShowQuestions] = useState(true)
+  const [isReordering, setIsReordering] = useState(false) // NOUVEAU : État du mode réorganisation
+
+  const handleDragEnd = (result: any) => {
+    if (!result.destination) return;
+    const items = Array.from(flashcards);
+    const [reorderedItem] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, reorderedItem);
+    
+    // Garder l'index actuel synchronisé avec la carte regardée
+    if (currentIndex === result.source.index) setCurrentIndex(result.destination.index);
+    else if (currentIndex > result.source.index && currentIndex <= result.destination.index) setCurrentIndex(currentIndex - 1);
+    else if (currentIndex < result.source.index && currentIndex >= result.destination.index) setCurrentIndex(currentIndex + 1);
+
+    if (onReorderCards) onReorderCards(items);
+  };
 
   if (flashcards.length === 0) {
     if (appMode === 'search') return (<div className="flex flex-col items-center justify-center h-full text-center text-gray-500 mt-12 w-full max-w-lg mx-auto bg-white p-10 rounded-3xl border border-gray-100 shadow-sm"><Search className="w-16 h-16 text-blue-400 mb-4" /><h2 className="text-2xl font-black mb-2 text-gray-800">Aucun résultat</h2><p className="text-gray-500">Aucune carte ne contient "{searchQuery}".</p></div>)
@@ -46,6 +63,7 @@ export function FlashcardViewer({
   const questions = flashcards.filter(c => c.type !== 'fiche')
 
   const handleNextCard = () => { setCurrentIndex(currentIndex + 1); setShowAnswer(false) }
+  const changeCard = (index: number) => { setCurrentIndex(index); setShowAnswer(false); setIsReordering(false); } // Désactive la réorganisation au clic
 
   const activeCatConfig = getCategoryConfig(currentCard?.categorie);
   const ActiveIcon = activeCatConfig.icon;
@@ -69,9 +87,21 @@ export function FlashcardViewer({
             {appMode === 'search' && <Search className="w-6 h-6 text-blue-500" />}
             {headerTitle}
           </h1>
+          
+          {/* BOUTON RÉORGANISER (Visible uniquement pour le prof dans un chapitre avec +1 carte) */}
+          {userRole === 'prof' && appMode === 'chapitre' && flashcards.length > 1 && (
+            <Button 
+              variant={isReordering ? "default" : "outline"}
+              onClick={() => setIsReordering(!isReordering)} 
+              className={`w-full mt-4 flex items-center gap-2 ${isReordering ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-white'}`}
+            >
+              <ListOrdered className="w-4 h-4" /> 
+              {isReordering ? "Terminer la réorganisation" : "Réorganiser les cartes"}
+            </Button>
+          )}
         </div>
 
-        <div className="flex flex-col gap-4 md:gap-5 pb-4 md:pb-8">
+        <div className={`flex flex-col gap-4 md:gap-5 pb-4 md:pb-8 ${isReordering ? 'opacity-50 pointer-events-none' : ''}`}>
           {fiches.length > 0 && (
             <div>
               <button onClick={() => setShowFiches(!showFiches)} className="flex items-center justify-between w-full p-2.5 md:p-3 bg-purple-50 text-purple-800 rounded-2xl font-bold text-xs md:text-sm mb-2 md:mb-3 hover:bg-purple-100 transition-colors">
@@ -81,9 +111,9 @@ export function FlashcardViewer({
                 <div className="overflow-hidden"><div className="flex flex-col gap-2 md:gap-3 pb-2">
                     {fiches.map((card) => {
                       const globalIndex = flashcards.findIndex(f => f.id === card.id)
-                      const isActive = globalIndex === currentIndex
+                      const isActive = globalIndex === currentIndex && !isReordering
                       return (
-                        <div key={card.id} onClick={() => { setCurrentIndex(globalIndex); setShowAnswer(false) }} className={`p-3 md:p-4 rounded-2xl cursor-pointer transition-all border shadow-sm ${isActive ? 'bg-purple-50 border-purple-400 ring-2 ring-purple-200' : 'bg-white border-gray-100 hover:border-purple-200 hover:bg-purple-50/50'}`}>
+                        <div key={card.id} onClick={() => changeCard(globalIndex)} className={`p-3 md:p-4 rounded-2xl cursor-pointer transition-all border shadow-sm ${isActive ? 'bg-purple-50 border-purple-400 ring-2 ring-purple-200' : 'bg-white border-gray-100 hover:border-purple-200 hover:bg-purple-50/50'}`}>
                           <div className="flex items-center gap-2 mb-1.5 md:mb-2"><span className="flex items-center gap-1 text-[9px] md:text-[10px] font-bold uppercase tracking-wider bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full"><FileText className="w-3 h-3"/> Fiche</span></div>
                           <div className={`text-xs md:text-sm line-clamp-2 ${isActive ? 'text-gray-900 font-medium' : 'text-gray-600'}`}><Latex>{card.question}</Latex></div>
                         </div>
@@ -103,12 +133,12 @@ export function FlashcardViewer({
                 <div className="overflow-hidden"><div className="flex flex-col gap-2 md:gap-3 pb-2">
                     {questions.map((card) => {
                       const globalIndex = flashcards.findIndex(f => f.id === card.id)
-                      const isActive = globalIndex === currentIndex
+                      const isActive = globalIndex === currentIndex && !isReordering
                       const catConfig = getCategoryConfig(card.categorie)
                       const Icon = catConfig.icon
 
                       return (
-                        <div key={card.id} onClick={() => { setCurrentIndex(globalIndex); setShowAnswer(false) }} className={`p-3 md:p-4 rounded-2xl cursor-pointer transition-all border shadow-sm ${isActive ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-200' : 'bg-white border-gray-100 hover:border-blue-200 hover:bg-blue-50/50'}`}>
+                        <div key={card.id} onClick={() => changeCard(globalIndex)} className={`p-3 md:p-4 rounded-2xl cursor-pointer transition-all border shadow-sm ${isActive ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-200' : 'bg-white border-gray-100 hover:border-blue-200 hover:bg-blue-50/50'}`}>
                           <div className="flex items-center gap-2 mb-1.5 md:mb-2">
                             <span className={`flex items-center gap-1 text-[9px] md:text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${catConfig.bg} ${catConfig.text}`}>
                               <Icon className="w-3 h-3" /> {catConfig.label}
@@ -125,8 +155,47 @@ export function FlashcardViewer({
         </div>
       </div>
 
-      <div className="flex-1 flex justify-center items-start pt-2 lg:pt-8 lg:h-[calc(100vh-4rem)] overflow-y-auto pb-12">
-        {!currentCard ? (
+      {/* ZONE DE DROITE : AFFICHE LA CARTE OU LA LISTE DE RÉORGANISATION */}
+      <div className="flex-1 flex justify-center items-start pt-2 lg:pt-8 lg:h-[calc(100vh-4rem)] overflow-y-auto pb-12 w-full">
+        
+        {isReordering ? (
+          <div className="w-full max-w-2xl bg-white border border-gray-200 rounded-3xl p-6 md:p-8 shadow-sm">
+            <h3 className="text-xl font-bold mb-6 text-gray-800 flex items-center gap-2">
+              <ListOrdered className="w-5 h-5 text-indigo-500" />
+              Glissez et déposez pour réorganiser
+            </h3>
+            
+            <DragDropContext onDragEnd={handleDragEnd}>
+              <Droppable droppableId="flashcards-list">
+                {(provided) => (
+                  <div {...provided.droppableProps} ref={provided.innerRef} className="flex flex-col gap-3">
+                    {flashcards.map((card, index) => {
+                      const catConf = getCategoryConfig(card.categorie);
+                      return (
+                        <Draggable key={`card-${card.id}`} draggableId={`card-${card.id}`} index={index}>
+                          {(provided) => (
+                            <div ref={provided.innerRef} {...provided.draggableProps} className="flex items-center gap-4 p-3 bg-white border border-gray-200 rounded-2xl shadow-sm group hover:border-indigo-300 transition-colors">
+                              <div {...provided.dragHandleProps} className="text-gray-300 hover:text-indigo-500 cursor-grab active:cursor-grabbing px-1">
+                                <GripVertical className="w-5 h-5" />
+                              </div>
+                              <div className="flex flex-col gap-1 overflow-hidden">
+                                <span className={`w-max text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${card.type === 'fiche' ? 'bg-purple-100 text-purple-700' : catConf.bg + ' ' + catConf.text}`}>
+                                  {card.type === 'fiche' ? 'Fiche' : catConf.label}
+                                </span>
+                                <div className="text-sm font-medium text-gray-700 truncate line-clamp-1"><Latex>{card.question}</Latex></div>
+                              </div>
+                            </div>
+                          )}
+                        </Draggable>
+                      )
+                    })}
+                    {provided.placeholder}
+                  </div>
+                )}
+              </Droppable>
+            </DragDropContext>
+          </div>
+        ) : !currentCard ? (
           <div className="flex flex-col items-center justify-center text-center bg-white p-10 rounded-3xl border border-gray-100 shadow-sm max-w-lg w-full mt-10 md:mt-20">
             {appMode === 'quiz' ? <Flame className="w-16 h-16 md:w-20 md:h-20 text-orange-500 mb-6 drop-shadow-md" /> : appMode === 'search' ? <Search className="w-16 h-16 md:w-20 md:h-20 text-blue-500 mb-6 drop-shadow-md" /> : <Trophy className="w-16 h-16 md:w-20 md:h-20 text-yellow-500 mb-6 drop-shadow-md" />}
             <h2 className="text-2xl md:text-3xl font-black mb-3 text-gray-800">{appMode === 'revisions' ? "Révisions terminées !" : appMode === 'quiz' ? "Session terminée !" : appMode === 'search' ? "Recherche terminée !" : "Chapitre terminé !"}</h2>
